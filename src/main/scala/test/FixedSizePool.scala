@@ -3,12 +3,11 @@ package test
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{ContextShift, IO, Resource}
 import cats.syntax.parallel._
-import cats.instances.list._
 
 import scala.collection.immutable.Queue
 
 class FixedSizePool[A] private (
-  stateRef: Ref[IO, FixedSizePool.State[IO, A]],
+  stateRef: Ref[IO, FixedSizePool.State[A]],
 )(implicit cs: ContextShift[IO]) {
 
   def use[B](f: A => IO[B]): IO[B] = {
@@ -58,13 +57,13 @@ object FixedSizePool {
   )(implicit cs: ContextShift[IO]): Resource[IO, FixedSizePool[A]] = {
     for {
       entries <- List.fill(size)(resource).parSequence
-      initialState = State[IO, A](entries.to(Queue), Queue.empty[Deferred[IO, A]])
+      initialState = State[A](entries.to(Queue), Queue.empty[Deferred[IO, A]])
       stateRef <- Resource.liftF(Ref[IO].of(initialState))
     } yield new FixedSizePool[A](stateRef)
   }
 
-  private case class State[F[_], A](
+  private case class State[A](
     available: Queue[A],
-    waiting: Queue[Deferred[F, A]],
+    waiting: Queue[Deferred[IO, A]],
   )
 }
