@@ -1,4 +1,4 @@
-package test
+package solution
 
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{ContextShift, IO, Resource}
@@ -6,8 +6,8 @@ import cats.syntax.parallel._
 
 import scala.collection.immutable.Queue
 
-class FixedSizePool[A] private (
-  stateRef: Ref[IO, FixedSizePool.State[A]],
+class FixedSizePoolProduction[A] private (
+  stateRef: Ref[IO, FixedSizePoolProduction.State[A]],
 )(implicit cs: ContextShift[IO]) {
 
   def use[B](f: A => IO[B]): IO[B] = {
@@ -49,17 +49,17 @@ class FixedSizePool[A] private (
     }
   }
 }
-object FixedSizePool {
+object FixedSizePoolProduction {
 
   def apply[A](
     size: Int,
     resource: Resource[IO, A],
-  )(implicit cs: ContextShift[IO]): Resource[IO, FixedSizePool[A]] = {
+  )(implicit cs: ContextShift[IO]): Resource[IO, FixedSizePoolProduction[A]] = {
     for {
       entries <- List.fill(size)(resource).parSequence
       initialState = State[A](entries.to(Queue), Queue.empty[Deferred[IO, A]])
       stateRef <- Resource.liftF(Ref[IO].of(initialState))
-    } yield new FixedSizePool[A](stateRef)
+    } yield new FixedSizePoolProduction[A](stateRef)
   }
 
   private case class State[A](
