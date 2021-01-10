@@ -2,14 +2,13 @@ package solution
 
 import java.util.concurrent.atomic.AtomicReference
 
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{ContextShift, ExitCode, IO, IOApp, Resource}
+import cats.effect.{ExitCode, IO, IOApp, Resource, Deferred, Ref}
 import cats.syntax.all._
 
 import scala.collection.immutable.Queue
 import scala.util.Random
 
-class FixedSizePool[A] private (stateRef: Ref[IO, FixedSizePool.State[A]])(implicit cs: ContextShift[IO]) {
+class FixedSizePool[A] private (stateRef: Ref[IO, FixedSizePool.State[A]]) {
 
   private def get: IO[A] = {
     Deferred[IO, A].flatMap { waiter =>
@@ -36,7 +35,7 @@ class FixedSizePool[A] private (stateRef: Ref[IO, FixedSizePool.State[A]])(impli
           (state.copy(available = state.available.enqueue(a)), None)
       }
     }.flatMap {
-      case Some(waiter) => waiter.complete(a)
+      case Some(waiter) => waiter.complete(a).void
       case None => IO.unit
     }
   }
@@ -56,10 +55,10 @@ object FixedSizePool {
     waiters: Queue[Deferred[IO, A]],
   )
 
-  def apply[A](size: Int, factory: Resource[IO, A])(implicit cs: ContextShift[IO]): Resource[IO, FixedSizePool[A]] = {
+  def apply[A](size: Int, factory: Resource[IO, A]): Resource[IO, FixedSizePool[A]] = {
     List.fill(size)(factory).parSequence.flatMap { available =>
       val initialState = State[A](available = available.to(Queue), waiters = Queue.empty)
-      Resource.liftF(Ref.of[IO, State[A]](initialState)).map { ref =>
+      Resource.eval(Ref.of[IO, State[A]](initialState)).map { ref =>
         new FixedSizePool(ref)
       }
     }
@@ -72,7 +71,7 @@ object Main extends IOApp {
 
   def acquire: IO[Connection] = {
     IO {
-      val id = Random.nextInt
+      val id = Random.between(0, 100)
       println(s"Connection $id created")
       new Connection(id)
     }
@@ -89,7 +88,7 @@ object Main extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] = {
     FixedSizePool[Connection](5, connectionResource).use { pool =>
-      pool.use(process)
+      List.fill(10)(pool.use(process)).parSequence
     }.as(ExitCode.Success)
   }
 }

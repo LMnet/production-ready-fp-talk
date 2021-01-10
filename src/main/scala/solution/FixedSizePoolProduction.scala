@@ -1,14 +1,13 @@
 package solution
 
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{ContextShift, IO, Resource}
+import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.parallel._
 
 import scala.collection.immutable.Queue
 
 class FixedSizePoolProduction[A] private (
   stateRef: Ref[IO, FixedSizePoolProduction.State[A]],
-)(implicit cs: ContextShift[IO]) {
+) {
 
   def use[B](f: A => IO[B]): IO[B] = {
     def useEntry(availableEntry: A): IO[B] = {
@@ -22,7 +21,7 @@ class FixedSizePoolProduction[A] private (
               (state.copy(available = newAvailableQueue), None)
           }
         }.flatMap {
-          case Some((deferred, entry)) => deferred.complete(entry)
+          case Some((deferred, entry)) => deferred.complete(entry).void
           case None => IO.unit
         }
       }
@@ -54,11 +53,11 @@ object FixedSizePoolProduction {
   def apply[A](
     size: Int,
     resource: Resource[IO, A],
-  )(implicit cs: ContextShift[IO]): Resource[IO, FixedSizePoolProduction[A]] = {
+  ): Resource[IO, FixedSizePoolProduction[A]] = {
     for {
       entries <- List.fill(size)(resource).parSequence
       initialState = State[A](entries.to(Queue), Queue.empty[Deferred[IO, A]])
-      stateRef <- Resource.liftF(Ref[IO].of(initialState))
+      stateRef <- Resource.eval(Ref[IO].of(initialState))
     } yield new FixedSizePoolProduction[A](stateRef)
   }
 

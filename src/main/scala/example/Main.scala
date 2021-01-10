@@ -2,8 +2,7 @@ package example
 
 import java.util.concurrent.atomic.AtomicReference
 
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{ContextShift, ExitCode, IO, IOApp, Resource}
+import cats.effect.{ExitCode, IO, IOApp, Resource, Deferred, Ref}
 import cats.syntax.all._
 
 import scala.collection.immutable.Queue
