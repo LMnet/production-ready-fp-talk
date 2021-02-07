@@ -11,31 +11,31 @@ import scala.util.Random
 class FixedSizePool[A] private (stateRef: Ref[IO, FixedSizePool.State[A]]) {
 
   private def get: IO[A] = {
-    Deferred[IO, A].flatMap { waiter =>
+    Deferred[IO, A].flatMap { deferred =>
       stateRef.modify[Either[Deferred[IO, A], A]] { state =>
         state.available.dequeueOption match {
           case Some((value, newAvailable)) =>
             (state.copy(available = newAvailable), Right(value))
           case None =>
-            (state.copy(waiters = state.waiters.enqueue(waiter)), Left(waiter))
+            (state.copy(waiting = state.waiting.enqueue(deferred)), Left(deferred))
         }
       }
     }.flatMap {
       case Right(entry) => IO(entry)
-      case Left(waiter) => waiter.get
+      case Left(deferred) => deferred.get
     }
   }
 
   private def put(a: A): IO[Unit] = {
     stateRef.modify { state =>
-      state.waiters.dequeueOption match {
-        case Some((waiter, newWaiters)) =>
-          (state.copy(waiters = newWaiters), Some(waiter))
+      state.waiting.dequeueOption match {
+        case Some((deferred, newWaiters)) =>
+          (state.copy(waiting = newWaiters), Some(deferred))
         case None =>
           (state.copy(available = state.available.enqueue(a)), None)
       }
     }.flatMap {
-      case Some(waiter) => waiter.complete(a).void
+      case Some(deferred) => deferred.complete(a).void
       case None => IO.unit
     }
   }
@@ -52,12 +52,12 @@ object FixedSizePool {
 
   private case class State[A](
     available: Queue[A],
-    waiters: Queue[Deferred[IO, A]],
+    waiting: Queue[Deferred[IO, A]],
   )
 
   def apply[A](size: Int, factory: Resource[IO, A]): Resource[IO, FixedSizePool[A]] = {
     List.fill(size)(factory).parSequence.flatMap { available =>
-      val initialState = State[A](available = available.to(Queue), waiters = Queue.empty)
+      val initialState = State[A](available = available.to(Queue), waiting = Queue.empty)
       Resource.eval(Ref.of[IO, State[A]](initialState)).map { ref =>
         new FixedSizePool(ref)
       }
