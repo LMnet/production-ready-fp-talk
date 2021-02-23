@@ -56,7 +56,7 @@ object FixedSizePool {
   )
 
   def apply[A](size: Int, factory: Resource[IO, A]): Resource[IO, FixedSizePool[A]] = {
-    List.fill(size)(factory).parSequence.flatMap { available =>
+    List.fill(size)(factory).sequence.flatMap { available =>
       val initialState = State[A](available = available.to(Queue), waiting = Queue.empty)
       Resource.eval(Ref.of[IO, State[A]](initialState)).map { ref =>
         new FixedSizePool(ref)
@@ -82,13 +82,20 @@ object Main extends IOApp {
 
   val connectionResource: Resource[IO, Connection] = Resource.make(acquire)(release)
 
-  def process(connection: Connection): IO[Unit] = {
-    IO(println(s"Using connection ${connection.id}"))
+  def handle(connection: Connection): IO[Int] = {
+    IO {
+      println(s"Using connection ${connection.id}")
+      connection.id
+    }
   }
 
   override def run(args: List[String]): IO[ExitCode] = {
-    FixedSizePool[Connection](5, connectionResource).use { pool =>
-      List.fill(10)(pool.use(process)).parSequence
-    }.as(ExitCode.Success)
+    val res: IO[Int] = FixedSizePool[Connection](5, connectionResource).use { pool =>
+      pool.use { connection =>
+        handle(connection)
+      }
+    }
+
+    res.as(ExitCode.Success)
   }
 }
